@@ -1,0 +1,143 @@
+name: Build LuckPermsNametag
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Create project files
+        run: |
+          mkdir -p src/main/java/ru/ruslan/lpnametag src/main/resources
+
+          cat > pom.xml << 'POM_EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>ru.ruslan</groupId>
+            <artifactId>LuckPermsNametag</artifactId>
+            <version>1.0.0</version>
+            <packaging>jar</packaging>
+          
+            <properties>
+              <maven.compiler.source>17</maven.compiler.source>
+              <maven.compiler.target>17</maven.compiler.target>
+              <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+            </properties>
+          
+            <repositories>
+              <repository>
+                <id>opencollab</id>
+                <url>https://repo.opencollab.dev/maven-snapshots/</url>
+              </repository>
+              <repository>
+                <id>luckperms-repo</id>
+                <url>https://repo.luckperms.net/</url>
+              </repository>
+            </repositories>
+          
+            <dependencies>
+              <dependency>
+                <groupId>cn.nukkit</groupId>
+                <artifactId>nukkit</artifactId>
+                <version>1.0-SNAPSHOT</version>
+                <scope>provided</scope>
+              </dependency>
+              <dependency>
+                <groupId>net.luckperms</groupId>
+                <artifactId>api</artifactId>
+                <version>5.4</version>
+                <scope>provided</scope>
+              </dependency>
+            </dependencies>
+          </project>
+          POM_EOF
+
+          cat > src/main/resources/plugin.yml << 'YML_EOF'
+          name: LuckPermsNametag
+          main: ru.ruslan.lpnametag.Main
+          version: 1.0.0
+          api: ["1.0.0"]
+          author: Ruslan
+          description: Отображает префикс LuckPerms над головой
+          softdepend: [LuckPerms]
+          YML_EOF
+
+          cat > src/main/java/ru/ruslan/lpnametag/Main.java << 'JAVA_EOF'
+          package ru.ruslan.lpnametag;
+
+          import cn.nukkit.Player;
+          import cn.nukkit.event.EventHandler;
+          import cn.nukkit.event.Listener;
+          import cn.nukkit.event.player.PlayerJoinEvent;
+          import cn.nukkit.plugin.PluginBase;
+          import cn.nukkit.utils.TextFormat;
+          import net.luckperms.api.LuckPerms;
+          import net.luckperms.api.LuckPermsProvider;
+          import net.luckperms.api.model.user.User;
+
+          public class Main extends PluginBase implements Listener {
+
+              private LuckPerms luckPerms;
+
+              @Override
+              public void onEnable() {
+                  try {
+                      this.luckPerms = LuckPermsProvider.get();
+                      this.getServer().getPluginManager().registerEvents(this, this);
+                      getLogger().info("LuckPermsNametag включён.");
+                  } catch (Exception e) {
+                      getLogger().error("LuckPerms не найден! Плагин отключен.");
+                  }
+              }
+
+              @EventHandler
+              public void onJoin(PlayerJoinEvent event) {
+                  Player player = event.getPlayer();
+                  
+                  this.getServer().getScheduler().scheduleDelayedTask(this, () -> {
+                      if (player.isOnline()) {
+                          updateNametag(player);
+                      }
+                  }, 20);
+              }
+
+              private void updateNametag(Player player) {
+                  if (player.hasPermission("luckpermsnametag.bypass")) {
+                      return;
+                  }
+
+                  try {
+                      User user = luckPerms.getPlayerAdapter(Player.class).getUser(player);
+                      if (user == null) return;
+
+                      String prefix = user.getCachedData().getMetaData().getPrefix();
+                      if (prefix == null) prefix = "";
+
+                      String formattedPrefix = TextFormat.colorize('&', prefix);
+                      
+                      player.setNameTag(formattedPrefix + player.getName());
+                  } catch (Exception e) {
+                      getLogger().warning("Ошибка при обновлении ника для " + player.getName() + ": " + e.getMessage());
+                  }
+              }
+          }
+          JAVA_EOF
+
+      - name: Build
+        run: mvn -B package
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuckPermsNametag
+          path: target/LuckPermsNametag-1.0.0.jar
